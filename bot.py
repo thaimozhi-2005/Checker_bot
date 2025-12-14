@@ -8,7 +8,6 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import TelegramError
 import json
 from aiohttp import web
-import threading
 
 # Configure logging
 logging.basicConfig(
@@ -17,20 +16,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Data storage (in production, use a database)
+# Data storage
 class BotData:
     def __init__(self):
         self.owner: int = None
         self.admins: Set[int] = set()
-        self.channels: Dict[str, str] = {}  # {id_or_username: name}
-        self.check_interval: int = 3600  # 1 hour default
+        self.channels: Dict[str, str] = {}
+        self.check_interval: int = 3600
         self.test_message: str = "✓ Status Check"
-        self.delete_interval: int = 3  # 3 seconds default
-        self.bot_active: bool = True  # Bot on/off status
+        self.delete_interval: int = 3
+        self.bot_active: bool = True
         self.load_data()
     
     def load_data(self):
-        """Load data from file if exists"""
         try:
             if os.path.exists('bot_data.json'):
                 with open('bot_data.json', 'r') as f:
@@ -38,12 +36,10 @@ class BotData:
                     self.owner = data.get('owner')
                     self.admins = set(data.get('admins', []))
                     
-                    # Handle both old list format and new dict format
                     channels_data = data.get('channels', {})
                     if isinstance(channels_data, list):
-                        # Convert old list format to dict
                         self.channels = {ch: f"Channel_{i+1}" for i, ch in enumerate(channels_data)}
-                        self.save_data()  # Save in new format
+                        self.save_data()
                     else:
                         self.channels = channels_data
                     
@@ -51,12 +47,11 @@ class BotData:
                     self.test_message = data.get('test_message', "✓ Status Check")
                     self.delete_interval = data.get('delete_interval', 3)
                     self.bot_active = data.get('bot_active', True)
-                    logger.info(f"Data loaded: {len(self.channels)} channels, bot_active={self.bot_active}")
+                    logger.info(f"Data loaded: {len(self.channels)} channels")
         except Exception as e:
             logger.error(f"Error loading data: {e}")
     
     def save_data(self):
-        """Save data to file"""
         try:
             with open('bot_data.json', 'w') as f:
                 json.dump({
@@ -75,14 +70,10 @@ class BotData:
 bot_data = BotData()
 
 def is_admin(user_id: int) -> bool:
-    """Check if user is an admin or owner"""
     return user_id == bot_data.owner or user_id in bot_data.admins
 
 def parse_time_to_seconds(time_str: str) -> int:
-    """Convert time string to seconds (e.g., '1h', '30m', '2d')"""
     time_str = time_str.lower().strip()
-    
-    # Try to parse number with unit
     if time_str.endswith('s'):
         return int(time_str[:-1])
     elif time_str.endswith('m'):
@@ -92,11 +83,9 @@ def parse_time_to_seconds(time_str: str) -> int:
     elif time_str.endswith('d'):
         return int(time_str[:-1]) * 86400
     else:
-        # Assume seconds if no unit
         return int(time_str)
 
 def seconds_to_readable(seconds: int) -> str:
-    """Convert seconds to readable format"""
     days = seconds // 86400
     hours = (seconds % 86400) // 3600
     minutes = (seconds % 3600) // 60
@@ -115,12 +104,10 @@ def seconds_to_readable(seconds: int) -> str:
     return " ".join(parts)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start command handler"""
     user_id = update.effective_user.id
     version = os.getenv('BOT_VERSION', '1.0.0')
     
     if not bot_data.owner:
-        # First user becomes owner
         bot_data.owner = user_id
         bot_data.save_data()
         await update.message.reply_text(
@@ -138,71 +125,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Admins: {len(bot_data.admins)}\n"
             f"Channels: {len(bot_data.channels)}\n\n"
             "Use /help to see all commands."
-        ) /help to see all available commands."
-        )
-    else:
-        status = "🟢 ACTIVE" if bot_data.bot_active else "🔴 INACTIVE"
-        await update.message.reply_text(
-            f"👋 Channel Monitor Bot\n\n"
-            f"Status: {status}\n"
-            f"Owner: {bot_data.owner}\n"
-            f"Admins: {len(bot_data.admins)}\n"
-            f"Channels: {len(bot_data.channels)}\n\n"
-            "Use /help to see all commands."
         )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show help message with all commands"""
     user_id = update.effective_user.id
     
     if is_admin(user_id):
         help_text = (
             "📋 *Channel Monitor Bot Commands*\n\n"
-            
             "👥 *Admin Management:*\n"
-            "/add\\_admin `<user_id>` \\- Add admin \\(owner only\\)\n"
-            "/remove\\_admin `<user_id>` \\- Remove admin \\(owner only\\)\n\n"
-            
+            "/add\\_admin `<user_id>` \\- Add admin\n"
+            "/remove\\_admin `<user_id>` \\- Remove admin\n\n"
             "📢 *Channel Management:*\n"
             "/add\\_channel `<@username or ID>` `<name>` \\- Add channel\n"
-            "   Example: `/add_channel @mychannel My Channel`\n"
-            "   Example: `/add_channel -1001234567890 Private Channel`\n"
             "/remove\\_channel `<@username or ID>` \\- Remove channel\n"
             "/list \\- Show all monitored channels\n\n"
-            
             "⚙️ *Configuration:*\n"
             "/time\\_period `<time>` \\- Set check interval\n"
-            "   Examples: `30s`, `5m`, `1h`, `12h`, `1d`, `2d`\n"
+            "   Examples: `30s`, `5m`, `1h`, `12h`, `1d`\n"
             "/test\\_message `<text>` \\- Set test message\n"
             "/delete\\_interval `<time>` \\- Set delete time\n"
-            "   Examples: `3s`, `10s`, `30s`, `1m`\n"
             "/status \\- Show current settings\n\n"
-            
             "🔧 *Operations:*\n"
-            "/broadcast `<message>` \\- Send message to all channels\n"
-            "/on \\- Turn bot monitoring ON 🟢\n"
-            "/off \\- Turn bot monitoring OFF 🔴\n"
-            "/help \\- Show this help message\n\n"
-            
-            "⚠️ *Important:*\n"
-            "Make bot admin in all channels with:\n"
-            "• Post Messages permission\n"
-            "• Delete Messages permission"
+            "/broadcast `<message>` \\- Send to all channels\n"
+            "/on \\- Turn monitoring ON 🟢\n"
+            "/off \\- Turn monitoring OFF 🔴\n"
+            "/help \\- Show this help"
         )
     else:
         help_text = (
             "📋 *Channel Monitor Bot*\n\n"
-            "This bot monitors Telegram channels to check if they're banned or blocked\\.\n\n"
             "Available commands:\n"
             "/start \\- Start the bot\n"
-            "/help \\- Show this message\n\n"
-            "Contact the owner or an admin for access\\."
+            "/help \\- Show this message"
         )
     
     await update.message.reply_text(help_text, parse_mode='MarkdownV2')
 
 async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Add a new admin"""
     if update.effective_user.id != bot_data.owner:
         await update.message.reply_text("❌ Only the owner can add admins.")
         return
@@ -218,12 +178,11 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         bot_data.admins.add(new_admin_id)
         bot_data.save_data()
-        await update.message.reply_text(f"✅ Admin {new_admin_id} added successfully!")
+        await update.message.reply_text(f"✅ Admin {new_admin_id} added!")
     except ValueError:
-        await update.message.reply_text("❌ Invalid user ID. Please provide a numeric ID.")
+        await update.message.reply_text("❌ Invalid user ID.")
 
 async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove an admin"""
     if update.effective_user.id != bot_data.owner:
         await update.message.reply_text("❌ Only the owner can remove admins.")
         return
@@ -237,21 +196,20 @@ async def remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if admin_id in bot_data.admins:
             bot_data.admins.remove(admin_id)
             bot_data.save_data()
-            await update.message.reply_text(f"✅ Admin {admin_id} removed successfully!")
+            await update.message.reply_text(f"✅ Admin {admin_id} removed!")
         else:
             await update.message.reply_text("❌ User is not an admin.")
     except ValueError:
         await update.message.reply_text("❌ Invalid user ID.")
 
 async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Add a channel to monitor"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
     
     if len(context.args) < 2:
         await update.message.reply_text(
-            "Usage: /add_channel <@username or -100ID> <channel_name>\n\n"
+            "Usage: /add_channel <@username or -100ID> <name>\n\n"
             "Examples:\n"
             "/add_channel @mychannel My Channel\n"
             "/add_channel -1001234567890 Private Channel"
@@ -261,36 +219,29 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channel_id = context.args[0]
     channel_name = ' '.join(context.args[1:])
     
-    # Test if bot can access the channel
     try:
-        # Try to get chat info
         chat = await context.bot.get_chat(channel_id)
         actual_name = chat.title or channel_name
         
         bot_data.channels[channel_id] = channel_name
         bot_data.save_data()
         await update.message.reply_text(
-            f"✅ Channel added successfully!\n\n"
+            f"✅ Channel added!\n\n"
             f"ID: {channel_id}\n"
             f"Name: {channel_name}\n"
-            f"Actual: {actual_name}\n\n"
-            f"Total channels: {len(bot_data.channels)}"
+            f"Actual: {actual_name}\n"
+            f"Total: {len(bot_data.channels)}"
         )
     except Exception as e:
         await update.message.reply_text(
-            f"⚠️ Warning: Could not verify channel access.\n"
-            f"Error: {str(e)}\n\n"
-            f"Make sure:\n"
-            f"1. Bot is admin in the channel\n"
-            f"2. Channel ID/username is correct\n"
-            f"3. Bot has 'Post Messages' permission\n\n"
-            f"Channel added anyway. Check /list to verify."
+            f"⚠️ Warning: Could not verify access.\n"
+            f"Make sure bot is admin in the channel.\n\n"
+            f"Channel added anyway."
         )
         bot_data.channels[channel_id] = channel_name
         bot_data.save_data()
 
 async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Remove a channel from monitoring"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -304,12 +255,11 @@ async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = bot_data.channels[channel_id]
         del bot_data.channels[channel_id]
         bot_data.save_data()
-        await update.message.reply_text(f"✅ Channel '{name}' removed successfully!")
+        await update.message.reply_text(f"✅ Channel '{name}' removed!")
     else:
-        await update.message.reply_text("❌ Channel not found in the list.")
+        await update.message.reply_text("❌ Channel not found.")
 
 async def time_period(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set the check interval"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -317,25 +267,18 @@ async def time_period(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
             "Usage: /time_period <time>\n\n"
-            "Examples:\n"
-            "30s = 30 seconds\n"
-            "5m = 5 minutes\n"
-            "1h = 1 hour\n"
-            "12h = 12 hours\n"
-            "1d = 1 day\n"
-            "2d = 2 days"
+            "Examples: 30s, 5m, 1h, 12h, 1d, 2d"
         )
         return
     
     try:
         interval = parse_time_to_seconds(context.args[0])
         if interval < 30:
-            await update.message.reply_text("❌ Interval must be at least 30 seconds.")
+            await update.message.reply_text("❌ Minimum 30 seconds.")
             return
         bot_data.check_interval = interval
         bot_data.save_data()
         
-        # Reschedule job
         jobs = context.job_queue.get_jobs_by_name('channel_check')
         for job in jobs:
             job.schedule_removal()
@@ -348,12 +291,11 @@ async def time_period(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         readable = seconds_to_readable(interval)
-        await update.message.reply_text(f"✅ Check interval set to {readable} ({interval}s)!\n\nNew schedule will start in 10 seconds.")
+        await update.message.reply_text(f"✅ Check interval set to {readable}!")
     except ValueError:
-        await update.message.reply_text("❌ Invalid time format. Use: 30s, 5m, 1h, 2d, etc.")
+        await update.message.reply_text("❌ Invalid format. Use: 30s, 5m, 1h, etc.")
 
 async def test_message_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set the test message"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -368,7 +310,6 @@ async def test_message_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Test message set to:\n\n{message}")
 
 async def delete_interval_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Set the delete interval"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -376,33 +317,29 @@ async def delete_interval_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not context.args:
         await update.message.reply_text(
             "Usage: /delete_interval <time>\n\n"
-            "Examples:\n"
-            "3s = 3 seconds\n"
-            "10s = 10 seconds\n"
-            "1m = 1 minute"
+            "Examples: 3s, 10s, 1m"
         )
         return
     
     try:
         interval = parse_time_to_seconds(context.args[0])
         if interval < 1:
-            await update.message.reply_text("❌ Interval must be at least 1 second.")
+            await update.message.reply_text("❌ Minimum 1 second.")
             return
         bot_data.delete_interval = interval
         bot_data.save_data()
         readable = seconds_to_readable(interval)
-        await update.message.reply_text(f"✅ Delete interval set to {readable} ({interval}s)!")
+        await update.message.reply_text(f"✅ Delete interval set to {readable}!")
     except ValueError:
-        await update.message.reply_text("❌ Invalid time format. Use: 3s, 10s, 1m, etc.")
+        await update.message.reply_text("❌ Invalid format. Use: 3s, 10s, 1m, etc.")
 
 async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """List all monitored channels"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
     
     if not bot_data.channels:
-        await update.message.reply_text("📋 No channels are being monitored.")
+        await update.message.reply_text("📋 No channels being monitored.")
         return
     
     channels_list = []
@@ -413,7 +350,6 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Show current settings"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -435,45 +371,40 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(status_msg)
 
 async def bot_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Turn off bot monitoring"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
     
     if not bot_data.bot_active:
-        await update.message.reply_text("ℹ️ Bot is already inactive.")
+        await update.message.reply_text("ℹ️ Bot already inactive.")
         return
     
     bot_data.bot_active = False
     bot_data.save_data()
     await update.message.reply_text(
         "🔴 Bot monitoring turned OFF\n\n"
-        "The bot will not check channels or send alerts.\n"
-        "Use /on to resume monitoring."
+        "Use /on to resume."
     )
-    logger.info("Bot monitoring turned OFF by admin")
+    logger.info("Bot turned OFF")
 
 async def bot_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Turn on bot monitoring"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
     
     if bot_data.bot_active:
-        await update.message.reply_text("ℹ️ Bot is already active.")
+        await update.message.reply_text("ℹ️ Bot already active.")
         return
     
     bot_data.bot_active = True
     bot_data.save_data()
     await update.message.reply_text(
         "🟢 Bot monitoring turned ON\n\n"
-        "Channel monitoring has resumed.\n"
         f"Check interval: {seconds_to_readable(bot_data.check_interval)}"
     )
-    logger.info("Bot monitoring turned ON by admin")
+    logger.info("Bot turned ON")
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Broadcast a message to all channels"""
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("❌ Only admins can use this command.")
         return
@@ -497,10 +428,10 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=channel_id, text=message)
             successful += 1
-            logger.info(f"Broadcast successful to {channel_name} ({channel_id})")
-            await asyncio.sleep(0.5)  # Avoid rate limits
+            logger.info(f"Broadcast OK: {channel_name}")
+            await asyncio.sleep(0.5)
         except Exception as e:
-            logger.error(f"Failed to broadcast to {channel_name} ({channel_id}): {e}")
+            logger.error(f"Broadcast failed: {channel_name} - {e}")
             failed += 1
             failed_channels.append(f"{channel_name}: {str(e)[:50]}")
     
@@ -512,23 +443,19 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     if failed_channels:
-        report += "\n\n⚠️ Failed Channels:\n" + "\n".join([f"• {fc}" for fc in failed_channels[:5]])
+        report += "\n\n⚠️ Failed:\n" + "\n".join([f"• {fc}" for fc in failed_channels[:5]])
         if len(failed_channels) > 5:
             report += f"\n... and {len(failed_channels) - 5} more"
     
     await status_msg.edit_text(report)
 
 async def check_channel_status(context: ContextTypes.DEFAULT_TYPE):
-    """Periodic task to check channel status"""
-    
-    # Check if bot is active
     if not bot_data.bot_active:
-        logger.info("Bot is inactive. Skipping channel check.")
+        logger.info("Bot inactive. Skipping check.")
         return
     
-    # Ensure channels is a dict, not a list
     if isinstance(bot_data.channels, list):
-        logger.warning("Converting channels from list to dict format...")
+        logger.warning("Converting channels to dict...")
         new_channels = {ch: f"Channel_{i+1}" for i, ch in enumerate(bot_data.channels)}
         bot_data.channels = new_channels
         bot_data.save_data()
@@ -537,31 +464,27 @@ async def check_channel_status(context: ContextTypes.DEFAULT_TYPE):
         logger.info("No channels to check.")
         return
     
-    logger.info(f"Starting channel check for {len(bot_data.channels)} channels...")
+    logger.info(f"Checking {len(bot_data.channels)} channels...")
     
     for channel_id, channel_name in bot_data.channels.items():
         try:
-            # First attempt
-            logger.info(f"Checking {channel_name} ({channel_id})...")
+            logger.info(f"Checking {channel_name}...")
             msg = await context.bot.send_message(
                 chat_id=channel_id,
                 text=bot_data.test_message
             )
             
-            # Wait before deleting
             await asyncio.sleep(bot_data.delete_interval)
             
-            # Delete message
             try:
                 await msg.delete()
-                logger.info(f"✅ {channel_name} is alive and message deleted")
+                logger.info(f"✅ {channel_name} OK")
             except Exception as del_error:
-                logger.warning(f"Message sent but couldn't delete from {channel_name}: {del_error}")
+                logger.warning(f"Sent but can't delete: {channel_name}")
             
         except Exception as e:
-            logger.warning(f"⚠️ First attempt failed for {channel_name}: {e}")
+            logger.warning(f"⚠️ First attempt failed: {channel_name}")
             
-            # Second attempt after 2 seconds
             try:
                 await asyncio.sleep(2)
                 msg = await context.bot.send_message(
@@ -573,35 +496,31 @@ async def check_channel_status(context: ContextTypes.DEFAULT_TYPE):
                 
                 try:
                     await msg.delete()
-                    logger.info(f"✅ {channel_name} is alive on retry (message deleted)")
-                except Exception as del_error:
-                    logger.warning(f"Retry message sent but couldn't delete from {channel_name}: {del_error}")
+                    logger.info(f"✅ {channel_name} OK on retry")
+                except Exception:
+                    logger.warning(f"Retry sent but can't delete: {channel_name}")
                     
             except Exception as e2:
-                logger.error(f"❌ Channel {channel_name} appears BANNED or inaccessible: {e2}")
+                logger.error(f"❌ {channel_name} appears BANNED: {e2}")
                 
-                # Alert all admins and owner
                 warning_msg = (
                     f"⚠️ CHANNEL ALERT ⚠️\n\n"
                     f"📢 Channel: {channel_name}\n"
                     f"🆔 ID: {channel_id}\n"
-                    f"🔴 Status: Possibly BANNED or inaccessible\n"
+                    f"🔴 Status: Possibly BANNED\n"
                     f"🕐 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                    f"❌ Failed after 2 attempts\n"
-                    f"Error: {str(e2)[:100]}"
+                    f"❌ Failed after 2 attempts"
                 )
                 
-                # Notify owner
                 if bot_data.owner:
                     try:
                         await context.bot.send_message(
                             chat_id=bot_data.owner,
                             text=warning_msg
                         )
-                    except Exception as owner_error:
-                        logger.error(f"Failed to notify owner: {owner_error}")
+                    except Exception as err:
+                        logger.error(f"Can't notify owner: {err}")
                 
-                # Notify all admins
                 for admin_id in bot_data.admins:
                     try:
                         await context.bot.send_message(
@@ -609,41 +528,30 @@ async def check_channel_status(context: ContextTypes.DEFAULT_TYPE):
                             text=warning_msg
                         )
                         await asyncio.sleep(0.3)
-                    except Exception as admin_error:
-                        logger.error(f"Failed to notify admin {admin_id}: {admin_error}")
+                    except Exception as err:
+                        logger.error(f"Can't notify admin {admin_id}: {err}")
         
-        # Small delay between channels to avoid rate limits
         await asyncio.sleep(1)
     
-    logger.info("Channel check completed.")
+    logger.info("Check completed.")
 
 async def setup_periodic_check(application: Application):
-    """Setup periodic channel checking"""
     job_queue = application.job_queue
     job_queue.run_repeating(
         check_channel_status,
         interval=bot_data.check_interval,
-        first=10,  # Start 10 seconds after bot starts
+        first=10,
         name='channel_check'
     )
-    logger.info(f"Periodic check scheduled every {seconds_to_readable(bot_data.check_interval)}")
+    logger.info(f"Check scheduled every {seconds_to_readable(bot_data.check_interval)}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    """Handle errors in the bot"""
-    logger.error(f"Exception while handling an update: {context.error}")
-    
-    # Get error details
-    import traceback
-    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
-    tb_string = ''.join(tb_list)
-    logger.error(f"Full traceback:\n{tb_string}")
+    logger.error(f"Error: {context.error}")
 
 async def health_check(request):
-    """Health check endpoint for Render"""
     return web.Response(text="Bot is running!", status=200)
 
 async def start_web_server():
-    """Start a simple web server for health checks"""
     app = web.Application()
     app.router.add_get('/', health_check)
     app.router.add_get('/health', health_check)
@@ -656,24 +564,18 @@ async def start_web_server():
     logger.info(f"Web server started on port {port}")
 
 def main():
-    """Start the bot"""
-    # Get token and version from environment variables
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     version = os.getenv('BOT_VERSION', '1.0.0')
     
     if not token:
-        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
+        logger.error("TELEGRAM_BOT_TOKEN not set!")
         return
     
-    logger.info(f"Starting Channel Monitor Bot v{version}")
+    logger.info(f"Starting Bot v{version}")
     
-    # Create application
     application = Application.builder().token(token).build()
-    
-    # Add error handler
     application.add_error_handler(error_handler)
     
-    # Add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("add_admin", add_admin))
@@ -689,31 +591,26 @@ def main():
     application.add_handler(CommandHandler("on", bot_on))
     application.add_handler(CommandHandler("off", bot_off))
     
-    # Setup periodic check
     application.post_init = setup_periodic_check
     
-    # Start web server for Render health checks
     async def run_bot():
         await start_web_server()
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
-        logger.info("Bot started and polling!")
-        logger.info(f"Bot active: {bot_data.bot_active}")
-        logger.info(f"Check interval: {seconds_to_readable(bot_data.check_interval)}")
-        logger.info(f"Channels loaded: {len(bot_data.channels)}")
+        logger.info("Bot polling started!")
+        logger.info(f"Active: {bot_data.bot_active}")
+        logger.info(f"Channels: {len(bot_data.channels)}")
         
-        # Keep running
         try:
             await asyncio.Event().wait()
         except (KeyboardInterrupt, SystemExit):
-            logger.info("Stopping bot...")
+            logger.info("Stopping...")
         finally:
             await application.updater.stop()
             await application.stop()
             await application.shutdown()
     
-    # Run the bot
     asyncio.run(run_bot())
 
 if __name__ == '__main__':
