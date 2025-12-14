@@ -7,6 +7,8 @@ from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import TelegramError
 import json
+from aiohttp import web
+import threading
 
 # Configure logging
 logging.basicConfig(
@@ -115,14 +117,28 @@ def seconds_to_readable(seconds: int) -> str:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command handler"""
     user_id = update.effective_user.id
+    version = os.getenv('BOT_VERSION', '1.0.0')
     
     if not bot_data.owner:
         # First user becomes owner
         bot_data.owner = user_id
         bot_data.save_data()
         await update.message.reply_text(
-            "🎉 Welcome! You are now the Owner.\n\n"
+            f"🎉 Welcome! You are now the Owner.\n\n"
+            f"🤖 Bot Version: {version}\n\n"
             "Use /help to see all available commands."
+        )
+    else:
+        status = "🟢 ACTIVE" if bot_data.bot_active else "🔴 INACTIVE"
+        await update.message.reply_text(
+            f"👋 Channel Monitor Bot\n\n"
+            f"🤖 Version: {version}\n"
+            f"Status: {status}\n"
+            f"Owner: {bot_data.owner}\n"
+            f"Admins: {len(bot_data.admins)}\n"
+            f"Channels: {len(bot_data.channels)}\n\n"
+            "Use /help to see all commands."
+        ) /help to see all available commands."
         )
     else:
         status = "🟢 ACTIVE" if bot_data.bot_active else "🔴 INACTIVE"
@@ -510,6 +526,13 @@ async def check_channel_status(context: ContextTypes.DEFAULT_TYPE):
         logger.info("Bot is inactive. Skipping channel check.")
         return
     
+    # Ensure channels is a dict, not a list
+    if isinstance(bot_data.channels, list):
+        logger.warning("Converting channels from list to dict format...")
+        new_channels = {ch: f"Channel_{i+1}" for i, ch in enumerate(bot_data.channels)}
+        bot_data.channels = new_channels
+        bot_data.save_data()
+    
     if not bot_data.channels:
         logger.info("No channels to check.")
         return
@@ -615,14 +638,34 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     tb_string = ''.join(tb_list)
     logger.error(f"Full traceback:\n{tb_string}")
 
+async def health_check(request):
+    """Health check endpoint for Render"""
+    return web.Response(text="Bot is running!", status=200)
+
+async def start_web_server():
+    """Start a simple web server for health checks"""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    
+    port = int(os.getenv('PORT', 10000))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Web server started on port {port}")
+
 def main():
     """Start the bot"""
-    # Get token from environment variable
+    # Get token and version from environment variables
     token = os.getenv('TELEGRAM_BOT_TOKEN')
+    version = os.getenv('BOT_VERSION', '1.0.0')
     
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         return
+    
+    logger.info(f"Starting Channel Monitor Bot v{version}")
     
     # Create application
     application = Application.builder().token(token).build()
@@ -649,12 +692,29 @@ def main():
     # Setup periodic check
     application.post_init = setup_periodic_check
     
-    # Start the bot
-    logger.info("Bot started!")
-    logger.info(f"Bot active: {bot_data.bot_active}")
-    logger.info(f"Check interval: {seconds_to_readable(bot_data.check_interval)}")
-    logger.info(f"Channels loaded: {len(bot_data.channels)}")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Start web server for Render health checks
+    async def run_bot():
+        await start_web_server()
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        logger.info("Bot started and polling!")
+        logger.info(f"Bot active: {bot_data.bot_active}")
+        logger.info(f"Check interval: {seconds_to_readable(bot_data.check_interval)}")
+        logger.info(f"Channels loaded: {len(bot_data.channels)}")
+        
+        # Keep running
+        try:
+            await asyncio.Event().wait()
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Stopping bot...")
+        finally:
+            await application.updater.stop()
+            await application.stop()
+            await application.shutdown()
+    
+    # Run the bot
+    asyncio.run(run_bot())
 
 if __name__ == '__main__':
     main()
