@@ -448,44 +448,50 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if await is_admin(user_id):
-        help_text = (
-            "📋 *Channel Monitor Bot Commands*\n\n"
-            "👥 *Admin Management:*\n"
-            "/add_admin <user_id> - Add admin\n"
-            "/remove_admin <user_id> - Remove admin\n\n"
-            "📢 *Channel Management:*\n"
-            "/add_channel <@username or -100ID> <name> - Add channel\n"
-            "/remove_channel <@username or ID> - Remove channel\n"
-            "/list - Show all monitored channels\n\n"
-            "📂 *Group Management:*\n"
-            "/create_group <group_name> - Create channel group\n"
-            "/add_to_group <group_name> <channel_id> - Add channel to group\n"
-            "/remove_from_group <group_name> <channel_id> - Remove from group\n"
-            "/list_groups - Show all groups\n"
-            "/delete_group <group_name> - Delete group\n\n"
-            "⚙️ *Configuration:*\n"
-            "/time_period <time> - Set check interval\n"
-            "   Examples: `30s`, `5m`, `1h`, `12h`, `1d`\n"
-            "/test_message <text> - Set test message\n"
-            "/delete_interval <time> - Set delete time\n"
-            "/status - Show current settings\n\n"
-            "🔧 *Operations:*\n"
-            "/broadcast - Send to all channels (reply to message)\n"
-            "/publish <group_name> - Send to group (reply to message)\n"
-            "/usercount - Get user count across channels\n"
-            "/on - Turn monitoring ON 🟢\n"
-            "/off - Turn monitoring OFF 🔴\n"
-            "/help - Show this help"
-        )
+        help_text = """
+<b>📋 Channel Monitor Bot Commands</b>
+
+<b>👥 Admin Management:</b>
+• /add_admin &lt;user_id&gt; - Add admin
+• /remove_admin &lt;user_id&gt; - Remove admin
+
+<b>📢 Channel Management:</b>
+• /add_channel &lt;@username or -100ID&gt; &lt;name&gt; - Add channel
+• /remove_channel &lt;@username or ID&gt; - Remove channel
+• /list - Show all monitored channels
+
+<b>📂 Group Management:</b>
+• /create_group &lt;group_name&gt; - Create channel group
+• /add_to_group &lt;group_name&gt; &lt;channel_id&gt; - Add channel to group
+• /remove_from_group &lt;group_name&gt; &lt;channel_id&gt; - Remove from group
+• /list_groups - Show all groups
+• /delete_group &lt;group_name&gt; - Delete group
+
+<b>⚙️ Configuration:</b>
+• /time_period &lt;time&gt; - Set check interval
+  <i>Examples: 30s, 5m, 1h, 12h, 1d</i>
+• /test_message &lt;text&gt; - Set test message
+• /delete_interval &lt;time&gt; - Set delete time
+• /status - Show current settings
+
+<b>🔧 Operations:</b>
+• /broadcast - Send to all channels (reply to message)
+• /publish &lt;group_name&gt; - Send to group (reply to message)
+• /usercount - Get user count across channels
+• /on - Turn monitoring ON 🟢
+• /off - Turn monitoring OFF 🔴
+• /help - Show this help
+"""
     else:
-        help_text = (
-            "📋 *Channel Monitor Bot*\n\n"
-            "Available commands:\n"
-            "/start - Start the bot\n"
-            "/help - Show this message"
-        )
+        help_text = """
+<b>📋 Channel Monitor Bot</b>
+
+Available commands:
+• /start - Start the bot
+• /help - Show this message
+"""
     
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    await update.message.reply_text(help_text, parse_mode='HTML')
 
 async def add_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Add admin command"""
