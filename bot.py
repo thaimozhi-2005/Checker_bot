@@ -38,7 +38,7 @@ async def shutdown_handler():
 async def init_db():
     """Initialize database connection pool with Render optimizations"""
     global db_pool
-    database_url = os.getenv('DATABASE_URL','postgresql://neondb_owner:npg_7MpU1umoWCqt@ep-misty-hat-ahjo80ku-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require')
+    database_url = os.getenv('DATABASE_URL')
     
     if not database_url:
         logger.error("❌ DATABASE_URL environment variable is not set!")
@@ -1582,7 +1582,7 @@ async def main():
         signal.signal(sig, lambda s, f: asyncio.create_task(shutdown()))
     
     # Get environment variables
-    token = os.getenv('TELEGRAM_BOT_TOKEN',"8426231729:AAGipiFM78hHJNp6mQI1124i35aLtLHSQ10")
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
     version = os.getenv('BOT_VERSION', '2.0.0')
     
     if not token:
