@@ -5,6 +5,8 @@ import signal
 import sys
 from datetime import datetime
 from typing import Dict, List, Optional
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CallbackQueryHandler
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.error import TelegramError
@@ -448,51 +450,63 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if await is_admin(user_id):
-        help_text = """
-<b>📋 Channel Monitor Bot Commands</b>
+        help_text = (
+            "<b>📋 Channel Monitor Bot Commands</b>\n\n"
 
-<b>👥 Admin Management:</b>
-• /add_admin &lt;user_id&gt; - Add admin
-• /remove_admin &lt;user_id&gt; - Remove admin
+            "<b>👥 Admin Management:</b>\n"
+            "• /add_admin &lt;user_id&gt; - Add a new bot admin\n"
+            "• /remove_admin &lt;user_id&gt; - Remove an existing bot admin\n\n"
 
-<b>📢 Channel Management:</b>
-• /add_channel &lt;@username or -100ID&gt; &lt;name&gt; - Add channel
-• /remove_channel &lt;@username or ID&gt; - Remove channel
-• /list - Show all monitored channels
+            "<b>📢 Channel Management:</b>\n"
+            "• /add_channel &lt;@username or -100ID&gt; &lt;name&gt; - Add a channel to monitor\n"
+            "• /remove_channel &lt;@username or -100ID&gt; - Remove a channel from monitor list\n"
+            "• /list - Show all monitored channels\n\n"
 
-<b>📂 Group Management:</b>
-• /create_group &lt;group_name&gt; - Create channel group
-• /add_to_group &lt;group_name&gt; &lt;channel_id&gt; - Add channel to group
-• /remove_from_group &lt;group_name&gt; &lt;channel_id&gt; - Remove from group
-• /list_groups - Show all groups
-• /delete_group &lt;group_name&gt; - Delete group
+            "<b>📂 Group Management:</b>\n"
+            "• /create_group &lt;group_name&gt; - Create a new channel group\n"
+            "• /add_to_group &lt;group_name&gt; &lt;channel_id&gt; - Add a channel into a group\n"
+            "• /remove_from_group &lt;group_name&gt; &lt;channel_id&gt; - Remove a channel from a group\n"
+            "• /list_groups - Show all groups with their channels\n"
+            "• /delete_group &lt;group_name&gt; - Delete an entire group\n\n"
 
-<b>⚙️ Configuration:</b>
-• /time_period &lt;time&gt; - Set check interval
-  <i>Examples: 30s, 5m, 1h, 12h, 1d</i>
-• /test_message &lt;text&gt; - Set test message
-• /delete_interval &lt;time&gt; - Set delete time
-• /status - Show current settings
+            "<b>⚙️ Configuration:</b>\n"
+            "• /time_period &lt;time&gt; - Set how often channels are checked\n"
+            "  <i>Format: 30s, 5m, 1h, 12h, 1d</i>\n"
+            "• /test_message &lt;text&gt; - Set the message sent during channel check\n"
+            "• /delete_interval &lt;time&gt; - Set how long before test message is deleted\n"
+            "  <i>Format: 3s, 10s, 1m</i>\n"
+            "• /status - Show all current bot settings\n\n"
 
-<b>🔧 Operations:</b>
-• /broadcast - Send to all channels (reply to message)
-• /publish &lt;group_name&gt; - Send to group (reply to message)
-• /usercount - Get user count across channels
-• /on - Turn monitoring ON 🟢
-• /off - Turn monitoring OFF 🔴
-• /help - Show this help
-"""
+            "<b>📡 Broadcast:</b>\n"
+            "• /broadcast - Reply to any message to send it to ALL channels\n"
+            "• /publish &lt;group_name&gt; - Reply to any message to send it to a specific group\n\n"
+
+            "<b>👑 Channel Admin Control:</b>\n"
+            "• /promote &lt;user_id&gt; - Promote user as admin in ALL channels\n"
+            "• /promote &lt;user_id&gt; &lt;@channel or -100ID&gt; - Promote in a specific channel\n"
+            "• /demote &lt;user_id&gt; - Remove admin rights in ALL channels\n"
+            "• /demote &lt;user_id&gt; &lt;@channel or -100ID&gt; - Remove admin rights in specific channel\n"
+            "  <i>Permissions based on PROMOTE_PERMISSIONS list in code</i>\n\n"
+
+            "<b>📊 Stats:</b>\n"
+            "• /usercount - Get total member count across all channels\n\n"
+
+            "<b>🔧 Bot Control:</b>\n"
+            "• /on - Turn channel monitoring ON\n"
+            "• /off - Turn channel monitoring OFF\n\n"
+
+            "<b>❓ Help:</b>\n"
+            "• /help - Show this help message"
+        )
     else:
-        help_text = """
-<b>📋 Channel Monitor Bot</b>
-
-Available commands:
-• /start - Start the bot
-• /help - Show this message
-"""
+        help_text = (
+            "<b>📋 Channel Monitor Bot</b>\n\n"
+            "Available commands:\n"
+            "• /start - Start the bot\n"
+            "• /help - Show this message"
+        )
     
     await update.message.reply_text(help_text, parse_mode='HTML')
-
 async def add_admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Add admin command"""
     if is_shutting_down:
@@ -749,6 +763,238 @@ async def time_period_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Check interval set to {readable}!")
     except ValueError:
         await update.message.reply_text("❌ Invalid format. Use: 30s, 5m, 1h, etc.")
+
+MINIMUM_PERMISSIONS = [
+    "can_post_messages",
+    "can_edit_messages",
+    "can_delete_messages",
+    "can_invite_users",
+    "can_manage_video_chats",        # ← add பண்ணு
+]
+ALL_POSSIBLE_PERMISSIONS = [
+    "can_post_messages",
+    "can_edit_messages",
+    "can_delete_messages",
+    "can_invite_users",
+    "can_manage_chat",
+    "can_change_info",
+    "can_promote_members",
+    "can_restrict_members",
+    "can_pin_messages",
+    "can_manage_video_chats",
+]
+
+
+async def promote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Promote user to admin in channel(s)"""
+    if is_shutting_down:
+        return
+
+    if not await is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "<b>👑 Promote Command Guide</b>\n\n"
+            "<b>📌 Usage:</b>\n"
+            "• <code>/promote &lt;user_id&gt;</code>\n"
+            "  → Promotes user in <b>ALL</b> channels\n\n"
+            "• <code>/promote &lt;user_id&gt; &lt;@channel or -100ID&gt;</code>\n"
+            "  → Promotes user in a <b>specific</b> channel\n\n"
+            "<b>💡 Examples:</b>\n"
+            "• <code>/promote 123456789</code>\n"
+            "• <code>/promote 123456789 @mychannel</code>\n"
+            "• <code>/promote 123456789 -1001234567890</code>\n\n"
+            "<i>🔍 To get user_id, forward their message to @userinfobot</i>",
+            parse_mode='HTML'
+        )
+        return
+
+    try:
+        target_user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+        return
+
+    target_channel = context.args[1] if len(context.args) >= 2 else "all"
+
+    # Store in context for callback
+    context.user_data['promote_user_id'] = target_user_id
+    context.user_data['promote_channel'] = target_channel
+
+    # Show permission choice buttons
+    min_list = "\n".join([f"• <code>{p}</code>" for p in MINIMUM_PERMISSIONS])
+    all_list = "\n".join([f"• <code>{p}</code>" for p in ALL_POSSIBLE_PERMISSIONS])
+
+    keyboard = [
+        [
+            InlineKeyboardButton("⚡ Minimum", callback_data=f"promote_min_{target_user_id}_{target_channel}"),
+            InlineKeyboardButton("👑 All Permissions", callback_data=f"promote_all_{target_user_id}_{target_channel}"),
+        ],
+        [
+            InlineKeyboardButton("❌ Cancel", callback_data="promote_cancel"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        f"<b>👑 Promote User</b>\n\n"
+        f"👤 User ID: <code>{target_user_id}</code>\n"
+        f"📢 Channel: <code>{target_channel}</code>\n\n"
+        f"<b>⚡ Minimum Permissions:</b>\n{min_list}\n\n"
+        f"<b>👑 All Permissions:</b>\n{all_list}\n\n"
+        f"Choose permission level:",
+        parse_mode='HTML',
+        reply_markup=reply_markup
+    )
+
+
+async def promote_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle promote button callbacks"""
+    query = update.callback_query
+    await query.answer()
+
+    if not await is_admin(query.from_user.id):
+        await query.edit_message_text("❌ Only admins can do this.")
+        return
+
+    data = query.data
+
+    if data == "promote_cancel":
+        await query.edit_message_text("❌ Promote cancelled.")
+        return
+
+    # Parse callback data
+    # format: promote_min_USERID_CHANNEL or promote_all_USERID_CHANNEL
+    parts = data.split("_", 3)
+    # parts[0] = promote
+    # parts[1] = min or all
+    # parts[2] = user_id
+    # parts[3] = channel
+
+    perm_type = parts[1]
+    target_user_id = int(parts[2])
+    target_channel = parts[3]
+
+    permissions_to_use = MINIMUM_PERMISSIONS if perm_type == "min" else ALL_POSSIBLE_PERMISSIONS
+    perm_label = "⚡ Minimum" if perm_type == "min" else "👑 All Permissions"
+
+    channels = await get_all_channels()
+    if not channels:
+        await query.edit_message_text("❌ No channels added.")
+        return
+
+    if target_channel != "all":
+        if target_channel not in channels:
+            await query.edit_message_text(f"❌ Channel '{target_channel}' not found.")
+            return
+        channels_to_promote = {target_channel: channels[target_channel]}
+    else:
+        channels_to_promote = channels
+
+    # Build rights
+    rights = {perm: (perm in permissions_to_use) for perm in ALL_POSSIBLE_PERMISSIONS}
+
+    successful = []
+    failed = []
+
+    await query.edit_message_text("⏳ Promoting user...")
+
+    for channel_id, channel_name in channels_to_promote.items():
+        try:
+            await context.bot.promote_chat_member(
+                chat_id=channel_id,
+                user_id=target_user_id,
+                **rights
+            )
+            successful.append(channel_name)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            failed.append(f"{channel_name}: {str(e)[:60]}")
+
+    permissions_given = "\n".join([f"✅ {p}" for p in permissions_to_use])
+
+    report = (
+        f"<b>📊 Promote Report</b>\n\n"
+        f"👤 User: <code>{target_user_id}</code>\n"
+        f"🔑 Level: {perm_label}\n\n"
+        f"<b>📋 Permissions given:</b>\n{permissions_given}\n\n"
+        f"✅ Success ({len(successful)}):\n" +
+        "\n".join([f"• {c}" for c in successful]) +
+        (f"\n\n❌ Failed ({len(failed)}):\n" + "\n".join([f"• {f}" for f in failed]) if failed else "")
+    )
+
+    await query.edit_message_text(report, parse_mode='HTML')    
+async def demote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Demote admin to regular user in channel(s)"""
+    if is_shutting_down:
+        return
+
+    if not await is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/demote <user_id> - Demote in all channels\n"
+            "/demote <user_id> <@channel or -100ID> - Demote in specific channel"
+        )
+        return
+
+    try:
+        target_user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+        return
+
+    target_channel = context.args[1] if len(context.args) >= 2 else "all"
+
+    channels = await get_all_channels()
+    if not channels:
+        await update.message.reply_text("❌ No channels added.")
+        return
+
+    if target_channel != "all":
+        if target_channel not in channels:
+            await update.message.reply_text(f"❌ Channel '{target_channel}' not found in list.")
+            return
+        channels_to_demote = {target_channel: channels[target_channel]}
+    else:
+        channels_to_demote = channels
+
+    successful = []
+    failed = []
+
+    status_msg = await update.message.reply_text("⏳ Demoting user...")
+
+    for channel_id, channel_name in channels_to_demote.items():
+        try:
+            await context.bot.promote_chat_member(
+                chat_id=channel_id,
+                user_id=target_user_id,
+                can_post_messages=False,
+                can_edit_messages=False,
+                can_delete_messages=False,
+                can_invite_users=False,
+                can_manage_chat=False,
+                can_change_info=False,
+                can_promote_members=False,
+            )
+            successful.append(channel_name)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            failed.append(f"{channel_name}: {str(e)[:60]}")
+
+    report = (
+        f"📊 *Demote Report:*\n"
+        f"👤 User: `{target_user_id}`\n\n"
+        f"✅ Success ({len(successful)}):\n" +
+        "\n".join([f"• {c}" for c in successful]) +
+        (f"\n\n❌ Failed ({len(failed)}):\n" + "\n".join([f"• {f}" for f in failed]) if failed else "")
+    )
+    await status_msg.edit_text(report, parse_mode='Markdown')
 
 async def test_message_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set test message command"""
@@ -1333,6 +1579,10 @@ async def main():
         CommandHandler("remove_from_group", remove_from_group_cmd),
         CommandHandler("list_groups", list_groups_cmd),
         CommandHandler("delete_group", delete_group_cmd),
+        CommandHandler("promote", promote_cmd),
+	    CommandHandler("demote", demote_cmd),
+	    CommandHandler("promote", promote_cmd),
+        CallbackQueryHandler(promote_callback, pattern="^promote_"),
         CommandHandler("publish", publish_cmd),
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
     ]
