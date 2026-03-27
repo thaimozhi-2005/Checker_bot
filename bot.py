@@ -38,7 +38,7 @@ async def shutdown_handler():
 async def init_db():
     """Initialize database connection pool with Render optimizations"""
     global db_pool
-    database_url = os.getenv('DATABASE_URL')
+    database_url = os.getenv('DATABASE_URL','postgresql://neondb_owner:npg_7MpU1umoWCqt@ep-misty-hat-ahjo80ku-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require')
     
     if not database_url:
         logger.error("❌ DATABASE_URL environment variable is not set!")
@@ -477,6 +477,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "  <i>Format: 3s, 10s, 1m</i>\n"
             "• /status - Show all current bot settings\n\n"
 
+            "<b>📡 Channel Name Update:</b>\n"
+            "• /updatename - Fetch and update all channel names from Telegram\n"
+
             "<b>📡 Broadcast:</b>\n"
             "• /broadcast - Reply to any message to send it to ALL channels\n"
             "• /publish &lt;group_name&gt; - Reply to any message to send it to a specific group\n\n"
@@ -723,6 +726,53 @@ async def delete_group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_group(group_name)
     await update.message.reply_text(f"✅ Group '{group_name}' deleted!")
 
+async def update_channel_names_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fetch and update all channel names from Telegram"""
+    if is_shutting_down:
+        return
+
+    if not await is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    channels = await get_all_channels()
+    if not channels:
+        await update.message.reply_text("❌ No channels added.")
+        return
+
+    status_msg = await update.message.reply_text("🔄 Fetching channel names...")
+
+    updated = []
+    failed = []
+    same = []
+
+    for channel_id, old_name in channels.items():
+        try:
+            chat = await context.bot.get_chat(channel_id)
+            new_name = chat.title or old_name
+
+            if new_name != old_name:
+                await add_channel(channel_id, new_name)  # updates name in db
+                updated.append(f"• {old_name} → {new_name}")
+            else:
+                same.append(f"• {old_name}")
+
+            await asyncio.sleep(0.3)
+
+        except Exception as e:
+            failed.append(f"• {old_name}: {str(e)[:50]}")
+
+    report = (
+        f"<b>📋 Channel Name Update Report</b>\n\n"
+        f"✅ Updated ({len(updated)}):\n" +
+        ("\n".join(updated) if updated else "None") +
+        f"\n\n⏸ No Change ({len(same)}):\n" +
+        ("\n".join(same) if same else "None") +
+        (f"\n\n❌ Failed ({len(failed)}):\n" + "\n".join(failed) if failed else "")
+    )
+
+    await status_msg.edit_text(report, parse_mode='HTML')
+    
 async def time_period_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set time period command"""
     if is_shutting_down:
@@ -1532,7 +1582,7 @@ async def main():
         signal.signal(sig, lambda s, f: asyncio.create_task(shutdown()))
     
     # Get environment variables
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    token = os.getenv('TELEGRAM_BOT_TOKEN',"8426231729:AAGipiFM78hHJNp6mQI1124i35aLtLHSQ10")
     version = os.getenv('BOT_VERSION', '2.0.0')
     
     if not token:
@@ -1583,6 +1633,7 @@ async def main():
 	    CommandHandler("demote", demote_cmd),
 	    CommandHandler("promote", promote_cmd),
         CallbackQueryHandler(promote_callback, pattern="^promote_"),
+        CommandHandler("updatename", update_channel_names_cmd),
         CommandHandler("publish", publish_cmd),
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
     ]
