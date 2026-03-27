@@ -708,6 +708,151 @@ async def delete_group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     group_name = context.args[0]
     await delete_group(group_name)
     await update.message.reply_text(f"✅ Group '{group_name}' deleted!")
+    
+async def promote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Promote user to admin in channel(s)"""
+    if is_shutting_down:
+        return
+
+    if not await is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    # Usage: /promote <user_id> [channel_id or 'all']
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/promote <user_id> - Promote in all channels\n"
+            "/promote <user_id> <@channel or -100ID> - Promote in specific channel\n\n"
+            "Permissions given: post, edit, delete messages + invite users"
+        )
+        return
+
+    try:
+        target_user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+        return
+
+    target_channel = context.args[1] if len(context.args) >= 2 else "all"
+
+    channels = await get_all_channels()
+    if not channels:
+        await update.message.reply_text("❌ No channels added.")
+        return
+
+    if target_channel != "all":
+        if target_channel not in channels:
+            await update.message.reply_text(f"❌ Channel '{target_channel}' not found in list.")
+            return
+        channels_to_promote = {target_channel: channels[target_channel]}
+    else:
+        channels_to_promote = channels
+
+    from telegram import ChatPermissions, ChatAdministratorRights
+
+    successful = []
+    failed = []
+
+    status_msg = await update.message.reply_text("⏳ Promoting user...")
+
+    for channel_id, channel_name in channels_to_promote.items():
+        try:
+            await context.bot.promote_chat_member(
+                chat_id=channel_id,
+                user_id=target_user_id,
+                can_post_messages=True,
+                can_edit_messages=True,
+                can_delete_messages=True,
+                can_invite_users=True,
+                can_manage_chat=False,
+                can_change_info=False,
+                can_promote_members=False,
+            )
+            successful.append(channel_name)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            failed.append(f"{channel_name}: {str(e)[:60]}")
+
+    report = (
+        f"📊 *Promote Report:*\n"
+        f"👤 User: `{target_user_id}`\n\n"
+        f"✅ Success ({len(successful)}):\n" +
+        "\n".join([f"• {c}" for c in successful]) +
+        (f"\n\n❌ Failed ({len(failed)}):\n" + "\n".join([f"• {f}" for f in failed]) if failed else "")
+    )
+    await status_msg.edit_text(report, parse_mode='Markdown')
+
+
+async def demote_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Demote admin to regular user in channel(s)"""
+    if is_shutting_down:
+        return
+
+    if not await is_admin(update.effective_user.id):
+        await update.message.reply_text("❌ Only admins can use this command.")
+        return
+
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/demote <user_id> - Demote in all channels\n"
+            "/demote <user_id> <@channel or -100ID> - Demote in specific channel"
+        )
+        return
+
+    try:
+        target_user_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID.")
+        return
+
+    target_channel = context.args[1] if len(context.args) >= 2 else "all"
+
+    channels = await get_all_channels()
+    if not channels:
+        await update.message.reply_text("❌ No channels added.")
+        return
+
+    if target_channel != "all":
+        if target_channel not in channels:
+            await update.message.reply_text(f"❌ Channel '{target_channel}' not found in list.")
+            return
+        channels_to_demote = {target_channel: channels[target_channel]}
+    else:
+        channels_to_demote = channels
+
+    successful = []
+    failed = []
+
+    status_msg = await update.message.reply_text("⏳ Demoting user...")
+
+    for channel_id, channel_name in channels_to_demote.items():
+        try:
+            await context.bot.promote_chat_member(
+                chat_id=channel_id,
+                user_id=target_user_id,
+                can_post_messages=False,
+                can_edit_messages=False,
+                can_delete_messages=False,
+                can_invite_users=False,
+                can_manage_chat=False,
+                can_change_info=False,
+                can_promote_members=False,
+            )
+            successful.append(channel_name)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            failed.append(f"{channel_name}: {str(e)[:60]}")
+
+    report = (
+        f"📊 *Demote Report:*\n"
+        f"👤 User: `{target_user_id}`\n\n"
+        f"✅ Success ({len(successful)}):\n" +
+        "\n".join([f"• {c}" for c in successful]) +
+        (f"\n\n❌ Failed ({len(failed)}):\n" + "\n".join([f"• {f}" for f in failed]) if failed else "")
+    )
+    await status_msg.edit_text(report, parse_mode='Markdown')
 
 async def time_period_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set time period command"""
@@ -1333,6 +1478,8 @@ async def main():
         CommandHandler("remove_from_group", remove_from_group_cmd),
         CommandHandler("list_groups", list_groups_cmd),
         CommandHandler("delete_group", delete_group_cmd),
+        CommandHandler("promote", promote_cmd),
+        CommandHandler("demote", demote_cmd),
         CommandHandler("publish", publish_cmd),
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
     ]
